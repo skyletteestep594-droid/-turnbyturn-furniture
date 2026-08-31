@@ -56,6 +56,7 @@ export default function ProductPage() {
           <Link href="/shop" className="hover:text-[#c9a24b] transition-colors">Shop</Link>
           <Link href="/cart" className="hover:text-[#c9a24b] transition-colors">Cart</Link>
         </nav>
+        <Link href="/cart" className="md:hidden text-sm text-[#c9a24b] tracking-wide">Cart</Link>
       </header>
 
       <section className="px-8 py-16 max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12">
