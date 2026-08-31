@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { generateSlug } from '@/lib/utils/slugify'
+import { compressImage } from '@/lib/utils/compress-image'
 
 type Category = { id: string; name: string }
 
@@ -40,8 +41,9 @@ export default function NewProduct() {
     const bucketName = 'images'
 
     if (imageFile) {
-      const fileName = `${Date.now()}-${imageFile.name}`
-      const { error: uploadError } = await supabase.storage.from(bucketName).upload(fileName, imageFile)
+      const compressedFile = await compressImage(imageFile)
+      const fileName = `${Date.now()}-${compressedFile.name}`
+      const { error: uploadError } = await supabase.storage.from(bucketName).upload(fileName, compressedFile)
       if (uploadError) {
         setError(uploadError.message)
         setUploading(false)
