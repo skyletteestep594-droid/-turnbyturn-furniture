@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -11,7 +11,7 @@ type OrderItem = {
   quantity: number
 }
 
-export default function OrderConfirmation() {
+function OrderConfirmationContent() {
   const searchParams = useSearchParams()
   const orderId = searchParams.get('order')
   const [orderItems, setOrderItems] = useState<OrderItem[]>([])
@@ -66,4 +66,12 @@ export default function OrderConfirmation() {
       </section>
     </div>
   );
+}
+
+export default function OrderConfirmation() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0a0a0a]" />}>
+      <OrderConfirmationContent />
+    </Suspense>
+  )
 }
