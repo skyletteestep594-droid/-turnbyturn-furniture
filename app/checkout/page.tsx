@@ -1,13 +1,13 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useCart } from '@/lib/cart-context'
 import { createClient } from '@/lib/supabase/client'
-import { usePaystackPayment } from 'react-paystack'
+
+const PaystackButton = dynamic(() => import('@/components/PaystackButton'), { ssr: false })
 
 export default function CheckoutPage() {
   const { items, total, clearCart } = useCart()
@@ -22,17 +22,9 @@ export default function CheckoutPage() {
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [orderReady, setOrderReady] = useState<{ id: string; customer_name: string; customer_phone: string; delivery_address: string; city: string; state: string; total: number } | null>(null)
 
-  const paystackConfig = {
-    reference: new Date().getTime().toString(),
-    email: email || `${phone}@turnbyturn.com`,
-    amount: Math.round(total * 100),
-    publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || '',
-  }
-
-  const initializePayment = usePaystackPayment(paystackConfig)
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setSubmitting(true)
@@ -73,43 +65,48 @@ export default function CheckoutPage() {
       return
     }
 
-    initializePayment({
-      onSuccess: async (response: { reference: string }) => {
-        const verifyRes = await fetch('/api/verify-payment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reference: response.reference, orderId: order.id }),
-        })
-        const verifyData = await verifyRes.json()
+    setOrderReady(order)
+    setSubmitting(false)
+  }
 
-        if (!verifyData.success) {
-          setError('Payment could not be verified. Please contact us.')
-          setSubmitting(false)
-          return
-        }
+  const handlePaymentSuccess = async (reference: string) => {
+    if (!orderReady) return
+    setSubmitting(true)
 
-        fetch('/api/notify-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customer_name: order.customer_name,
-            customer_phone: order.customer_phone,
-            delivery_address: order.delivery_address,
-            city: order.city,
-            state: order.state,
-            total: order.total,
-            orderId: order.id,
-          }),
-        }).catch((err) => console.error('Notification failed:', err))
-
-        clearCart()
-        router.push(`/order-confirmation?order=${order.id}`)
-      },
-      onClose: () => {
-        setSubmitting(false)
-        setError('Payment was not completed.')
-      },
+    const verifyRes = await fetch('/api/verify-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference, orderId: orderReady.id }),
     })
+    const verifyData = await verifyRes.json()
+
+    if (!verifyData.success) {
+      setError('Payment could not be verified. Please contact us.')
+      setSubmitting(false)
+      return
+    }
+
+    fetch('/api/notify-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_name: orderReady.customer_name,
+        customer_phone: orderReady.customer_phone,
+        delivery_address: orderReady.delivery_address,
+        city: orderReady.city,
+        state: orderReady.state,
+        total: orderReady.total,
+        orderId: orderReady.id,
+      }),
+    }).catch((err) => console.error('Notification failed:', err))
+
+    clearCart()
+    router.push(`/order-confirmation?order=${orderReady.id}`)
+  }
+
+  const handlePaymentClose = () => {
+    setSubmitting(false)
+    setError('Payment was not completed.')
   }
 
   if (items.length === 0) {
@@ -128,40 +125,55 @@ export default function CheckoutPage() {
       </header>
 
       <section className="px-8 py-16 max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12">
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleCreateOrder} className="flex flex-col gap-4">
           <h1 className="font-display text-2xl mb-2">Delivery Details</h1>
           {error && <p className="text-red-400 text-sm">{error}</p>}
           <div>
             <label className="block text-sm text-[#9a9a9a] mb-1">Full Name</label>
-            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required />
+            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required disabled={!!orderReady} />
           </div>
           <div>
             <label className="block text-sm text-[#9a9a9a] mb-1">Phone Number</label>
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required />
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required disabled={!!orderReady} />
           </div>
           <div>
             <label className="block text-sm text-[#9a9a9a] mb-1">Email (optional)</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" disabled={!!orderReady} />
           </div>
           <div>
             <label className="block text-sm text-[#9a9a9a] mb-1">Delivery Address</label>
-            <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required />
+            <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required disabled={!!orderReady} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-[#9a9a9a] mb-1">City</label>
-              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" />
+              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" disabled={!!orderReady} />
             </div>
             <div>
               <label className="block text-sm text-[#9a9a9a] mb-1">State</label>
-              <input type="text" value={state} onChange={(e) => setState(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" />
+              <input type="text" value={state} onChange={(e) => setState(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" disabled={!!orderReady} />
             </div>
           </div>
           <div>
             <label className="block text-sm text-[#9a9a9a] mb-1">Delivery Notes (optional)</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" rows={2} />
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" rows={2} disabled={!!orderReady} />
           </div>
-          <button type="submit" disabled={submitting} className="bg-[#c9a24b] text-black py-3 font-medium hover:bg-[#dab868] transition-colors mt-2 disabled:opacity-50">{submitting ? 'Processing...' : 'Pay & Place Order'}</button>
+
+          {!orderReady ? (
+            <button type="submit" disabled={submitting} className="bg-[#c9a24b] text-black py-3 font-medium hover:bg-[#dab868] transition-colors mt-2 disabled:opacity-50">
+              {submitting ? 'Saving...' : 'Continue to Payment'}
+            </button>
+          ) : (
+            <PaystackButton
+              email={email || `${phone}@turnbyturn.com`}
+              amount={Math.round(total * 100)}
+              publicKey={process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || ''}
+              disabled={submitting}
+              label={submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}
+              onSuccess={handlePaymentSuccess}
+              onClose={handlePaymentClose}
+            />
+          )}
         </form>
 
         <div>
