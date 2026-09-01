@@ -1,37 +1,48 @@
-'use client'
+'use client';
 
-import { usePaystackPayment } from 'react-paystack'
+import { usePaystackPayment } from 'react-paystack';
 
-type PaystackButtonProps = {
-  email: string
-  amount: number
-  publicKey: string
-  disabled: boolean
-  label: string
-  onSuccess: (reference: string) => void
-  onClose: () => void
+interface PaystackButtonProps {
+  email: string;
+  amount: number; // amount in Naira (e.g. 5000 for ₦5,000)
+  orderId: string;
+  onSuccess: (reference: string) => void;
+  onClose?: () => void;
 }
 
-export default function PaystackButton({ email, amount, publicKey, disabled, label, onSuccess, onClose }: PaystackButtonProps) {
+export default function PaystackButton({
+  email,
+  amount,
+  orderId,
+  onSuccess,
+  onClose,
+}: PaystackButtonProps) {
   const config = {
-    reference: new Date().getTime().toString(),
-    email,
-    amount,
-    publicKey,
-  }
+    reference: orderId,
+    email: email,
+    amount: Math.round(amount * 100), // Paystack expects amount in kobo
+    publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string,
+  };
 
-  const initializePayment = usePaystackPayment(config)
+  const initializePayment = usePaystackPayment(config);
 
-  const handleClick = () => {
+  const handlePay = () => {
     initializePayment({
-      onSuccess: (response: { reference: string }) => onSuccess(response.reference),
-      onClose,
-    })
-  }
+      onSuccess: (reference: { reference: string }) => {
+        onSuccess(reference.reference);
+      },
+      onClose: () => {
+        if (onClose) onClose();
+      },
+    });
+  };
 
   return (
-    <button type="button" onClick={handleClick} disabled={disabled} className="bg-[#c9a24b] text-black py-3 font-medium hover:bg-[#dab868] transition-colors mt-2 disabled:opacity-50 w-full">
-      {label}
+    <button
+      onClick={handlePay}
+      className="w-full bg-[#c9a24b] text-black font-medium py-3 rounded-lg hover:bg-[#b8913f] transition"
+    >
+      Pay Now
     </button>
-  )
+  );
 }

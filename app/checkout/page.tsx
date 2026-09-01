@@ -1,197 +1,179 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import dynamic from 'next/dynamic'
-import { useCart } from '@/lib/cart-context'
-import { createClient } from '@/lib/supabase/client'
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import { useCart } from '@/lib/cart-context';
+import { createClient } from '@/lib/supabase/client';
 
-const PaystackButton = dynamic(() => import('@/components/PaystackButton'), { ssr: false })
+const PaystackCheckoutButton = dynamic(
+  () => import('@/app/components/PaystackCheckoutButton'),
+  { ssr: false }
+);
 
 export default function CheckoutPage() {
-  const { items, total, clearCart } = useCart()
-  const router = useRouter()
+  const router = useRouter();
+  const { items, total, clearCart } = useCart();
+  const supabase = createClient();
 
-  const [fullName, setFullName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
-  const [address, setAddress] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
-  const [notes, setNotes] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const [orderReady, setOrderReady] = useState<{ id: string; customer_name: string; customer_phone: string; delivery_address: string; city: string; state: string; total: number } | null>(null)
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleCreateOrder = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setSubmitting(true)
-    const supabase = createClient()
-
-    const { data: order, error: orderError } = await supabase.from('orders').insert({
-      customer_name: fullName,
-      customer_phone: phone,
-      customer_email: email || null,
-      delivery_address: address,
-      city,
-      state,
-      delivery_notes: notes,
-      subtotal: total,
-      total: total,
-      payment_status: 'pending',
-    }).select().single()
+  const createOrder = async (paymentReference: string, paid: boolean) => {
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        customer_name: name,
+        customer_email: email,
+        customer_phone: phone,
+        delivery_address: address,
+        total_amount: total,
+        payment_status: paid ? 'paid' : 'pending',
+        payment_reference: paymentReference,
+        status: 'pending',
+      })
+      .select()
+      .single();
 
     if (orderError || !order) {
-      setError(orderError?.message ?? 'Something went wrong. Please try again.')
-      setSubmitting(false)
-      return
+      console.error('Order creation failed:', orderError);
+      alert('Something went wrong saving your order. Please try again.');
+      setLoading(false);
+      return;
     }
 
-    const orderItems = items.map((item) => ({
+    const orderItems = items.map((item: any) => ({
       order_id: order.id,
       product_id: item.id,
       product_name: item.name,
-      price: item.price,
       quantity: item.quantity,
-    }))
+      price: item.price,
+    }));
 
-    const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
+    const { error: itemsError } = await supabase
+      .from('order_items')
+      .insert(orderItems);
 
     if (itemsError) {
-      setError(itemsError.message)
-      setSubmitting(false)
-      return
+      console.error('Order items failed:', itemsError);
     }
 
-    setOrderReady(order)
-    setSubmitting(false)
-  }
-
-  const handlePaymentSuccess = async (reference: string) => {
-    if (!orderReady) return
-    setSubmitting(true)
-
-    const verifyRes = await fetch('/api/verify-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reference, orderId: orderReady.id }),
-    })
-    const verifyData = await verifyRes.json()
-
-    if (!verifyData.success) {
-      setError('Payment could not be verified. Please contact us.')
-      setSubmitting(false)
-      return
+    try {
+      await fetch('/api/send-order-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+    } catch (e) {
+      console.error('Email notification failed:', e);
     }
 
-    fetch('/api/notify-order', {
+    clearCart();
+    router.push(`/order-confirmation?orderId=${order.id}`);
+  };
+
+  const handlePaystackSuccess = async (reference: any) => {
+    const res = await fetch('/api/verify-payment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customer_name: orderReady.customer_name,
-        customer_phone: orderReady.customer_phone,
-        delivery_address: orderReady.delivery_address,
-        city: orderReady.city,
-        state: orderReady.state,
-        total: orderReady.total,
-        orderId: orderReady.id,
-      }),
-    }).catch((err) => console.error('Notification failed:', err))
+      body: JSON.stringify({ reference: reference.reference }),
+    });
+    const result = await res.json();
 
-    clearCart()
-    router.push(`/order-confirmation?order=${orderReady.id}`)
-  }
+    if (result.verified) {
+      await createOrder(reference.reference, true);
+    } else {
+      alert('Payment verification failed. Please contact support.');
+      setLoading(false);
+    }
+  };
 
-  const handlePaymentClose = () => {
-    setSubmitting(false)
-    setError('Payment was not completed.')
-  }
+  const handlePaystackClose = () => {
+    setLoading(false);
+  };
 
-  if (items.length === 0) {
-    return (
-      <div className="min-h-screen bg-[#0a0a0a] text-[#f5f1e8] p-10 text-center">
-        <p className="text-[#9a9a9a] mb-6">Your cart is empty.</p>
-        <Link href="/shop" className="inline-block bg-[#c9a24b] text-black px-6 py-3 text-sm font-medium hover:bg-[#dab868] transition-colors">Continue Shopping</Link>
-      </div>
-    )
-  }
+  const formFilled = Boolean(name && email && phone && address);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-[#f5f1e8]">
-      <header className="flex items-center justify-between px-8 py-6 border-b border-[#c9a24b]/20">
-        <Link href="/" className="font-display text-xl tracking-widest text-[#c9a24b]">TURNBYTURN</Link>
-      </header>
+    <div className="min-h-screen bg-black text-white px-6 py-12 max-w-2xl mx-auto">
+      <h1 className="text-3xl font-serif mb-8">Checkout</h1>
 
-      <section className="px-8 py-16 max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12">
-        <form onSubmit={handleCreateOrder} className="flex flex-col gap-4">
-          <h1 className="font-display text-2xl mb-2">Delivery Details</h1>
-          {error && <p className="text-red-400 text-sm">{error}</p>}
-          <div>
-            <label className="block text-sm text-[#9a9a9a] mb-1">Full Name</label>
-            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required disabled={!!orderReady} />
-          </div>
-          <div>
-            <label className="block text-sm text-[#9a9a9a] mb-1">Phone Number</label>
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required disabled={!!orderReady} />
-          </div>
-          <div>
-            <label className="block text-sm text-[#9a9a9a] mb-1">Email (optional)</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" disabled={!!orderReady} />
-          </div>
-          <div>
-            <label className="block text-sm text-[#9a9a9a] mb-1">Delivery Address</label>
-            <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" required disabled={!!orderReady} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-[#9a9a9a] mb-1">City</label>
-              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" disabled={!!orderReady} />
-            </div>
-            <div>
-              <label className="block text-sm text-[#9a9a9a] mb-1">State</label>
-              <input type="text" value={state} onChange={(e) => setState(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" disabled={!!orderReady} />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm text-[#9a9a9a] mb-1">Delivery Notes (optional)</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-[#141414] border border-[#c9a24b]/20 px-3 py-2 text-white" rows={2} disabled={!!orderReady} />
-          </div>
-
-          {!orderReady ? (
-            <button type="submit" disabled={submitting} className="bg-[#c9a24b] text-black py-3 font-medium hover:bg-[#dab868] transition-colors mt-2 disabled:opacity-50">
-              {submitting ? 'Saving...' : 'Continue to Payment'}
-            </button>
-          ) : (
-            <PaystackButton
-              email={email || `${phone}@turnbyturn.com`}
-              amount={Math.round(total * 100)}
-              publicKey={process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || ''}
-              disabled={submitting}
-              label={submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}
-              onSuccess={handlePaymentSuccess}
-              onClose={handlePaymentClose}
-            />
-          )}
-        </form>
+      <section className="space-y-4 mb-8">
+        <div>
+          <label className="block text-sm mb-1">Full Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full bg-transparent border border-[#c9a24b] rounded px-4 py-2"
+          />
+        </div>
 
         <div>
-          <h2 className="font-display text-2xl mb-6">Order Summary</h2>
-          <div className="border border-[#c9a24b]/20 mb-6">
-            {items.map((item) => (
-              <div key={item.id} className="flex justify-between p-4 border-b border-[#c9a24b]/10 last:border-b-0">
-                <p>{item.name} × {item.quantity}</p>
-                <p className="text-[#c9a24b]">₦{(item.price * item.quantity).toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between text-xl">
-            <p>Total</p>
-            <p className="text-[#c9a24b] font-medium">₦{total.toLocaleString()}</p>
-          </div>
+          <label className="block text-sm mb-1">Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full bg-transparent border border-[#c9a24b] rounded px-4 py-2"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1">Phone Number</label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="w-full bg-transparent border border-[#c9a24b] rounded px-4 py-2"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1">Delivery Address</label>
+          <textarea
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            className="w-full bg-transparent border border-[#c9a24b] rounded px-4 py-2"
+            rows={3}
+          />
         </div>
       </section>
+
+      <section className="border-t border-[#c9a24b]/40 pt-6 mb-8">
+        {items.map((item: any) => (
+          <div key={item.id} className="flex justify-between text-sm mb-2">
+            <p>{item.name} x{item.quantity}</p>
+            <p>₦{(item.price * item.quantity).toLocaleString()}</p>
+          </div>
+        ))}
+        <div className="flex justify-between text-xl mt-4">
+          <p>Total</p>
+          <p className="text-[#c9a24b] font-medium">₦{total.toLocaleString()}</p>
+        </div>
+      </section>
+
+      {formFilled ? (
+        <PaystackCheckoutButton
+          email={email}
+          amount={Math.round(total * 100)}
+          publicKey={process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY!}
+          disabled={loading}
+          loading={loading}
+          onSuccess={handlePaystackSuccess}
+          onClose={handlePaystackClose}
+        />
+      ) : (
+        <button
+          onClick={() => alert('Please fill in all delivery details.')}
+          className="w-full bg-[#c9a24b]/50 text-black font-semibold py-3 rounded"
+        >
+          Pay Now
+        </button>
+      )}
     </div>
   );
 }
