@@ -63,7 +63,7 @@ export default async function Home() {
         <p className="text-[#9a9a9a] mb-8">
           Chat with us directly on WhatsApp — we reply fast.
         </p>
-        <a href="#" className="inline-block border border-[#c9a24b] text-[#c9a24b] px-8 py-3 text-sm tracking-wide hover:bg-[#c9a24b] hover:text-black transition-colors">
+        <a href="https://wa.me/2349135473864" target="_blank" rel="noopener noreferrer" className="inline-block border border-[#c9a24b] text-[#c9a24b] px-8 py-3 text-sm tracking-wide hover:bg-[#c9a24b] hover:text-black transition-colors">
           Message us on WhatsApp
         </a>
       </section>
