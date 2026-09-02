@@ -19,7 +19,7 @@ export default function Footer() {
           <p className="text-[var(--ivory)] mb-3">Get in touch</p>
           <ul className="space-y-2">
             <li><a href="/contact" className="hover:text-[var(--gold)]">Contact us</a></li>
-            <li><a href="#" className="hover:text-[var(--gold)]">WhatsApp</a></li>
+            <li><a href="https://wa.me/2349135473864" target="_blank" rel="noopener noreferrer" className="hover:text-[var(--gold)]">WhatsApp</a></li>
           </ul>
         </div>
       </div>
