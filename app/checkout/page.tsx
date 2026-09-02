@@ -30,6 +30,7 @@ export default function CheckoutPage() {
         customer_email: email,
         customer_phone: phone,
         delivery_address: address,
+        subtotal: total,
         total: total,
         payment_status: paid ? 'paid' : 'pending',
         payment_reference: paymentReference,
